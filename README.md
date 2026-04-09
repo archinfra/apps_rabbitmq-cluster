@@ -99,3 +99,4 @@ See:
 - The installer runtime does not depend on `jq`
 - The build process does depend on `jq`, `docker`, and `helm`
 - The packaged Helm chart uses the official Bitnami RabbitMQ chart and resolves the `common` dependency during CI build
+- The runtime image is pulled from `bitnamilegacy/rabbitmq:4.1.3-debian-12-r1` because that public tag still provides both `amd64` and `arm64`, while the same tag under `bitnami/rabbitmq` does not expose a public `arm64` manifest

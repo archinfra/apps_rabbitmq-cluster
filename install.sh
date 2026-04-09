@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="rabbitmq-cluster"
-APP_VERSION="0.1.0"
+APP_VERSION="0.1.1"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 CHART_DIR="${WORKDIR}/charts/rabbitmq"
