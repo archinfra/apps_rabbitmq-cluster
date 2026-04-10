@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="rabbitmq-cluster"
-APP_VERSION="0.1.2"
+APP_VERSION="0.1.3"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 CHART_DIR="${WORKDIR}/charts/rabbitmq"
@@ -561,6 +561,7 @@ install_release() {
     --timeout "${WAIT_TIMEOUT}"
     --set "replicaCount=${RABBITMQ_REPLICAS}"
     --set "clustering.enabled=true"
+    --set "global.security.allowInsecureImages=true"
     --set-string "auth.username=${RABBITMQ_USERNAME}"
     --set-string "auth.password=${RABBITMQ_PASSWORD}"
     --set-string "auth.erlangCookie=${RABBITMQ_ERLANG_COOKIE}"

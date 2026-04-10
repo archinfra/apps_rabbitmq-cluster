@@ -25,7 +25,7 @@ global:
   ##
   security:
     ## @param global.security.allowInsecureImages Allows skipping image verification
-    allowInsecureImages: false
+    allowInsecureImages: true
   ## Compatibility adaptations for Kubernetes platforms
   ##
   compatibility:
@@ -1354,7 +1354,7 @@ networkPolicy:
 metrics:
   ## @param metrics.enabled Enable exposing RabbitMQ metrics to be gathered by Prometheus
   ##
-  enabled: false
+  enabled: true
   ## @param metrics.plugins Plugins to enable Prometheus metrics in RabbitMQ
   ##
   plugins: "rabbitmq_prometheus"
@@ -1394,7 +1394,8 @@ metrics:
     selector: {}
     ## @param metrics.serviceMonitor.labels Extra labels for the ServiceMonitor
     ##
-    labels: {}
+    labels:
+      monitoring.archinfra.io/stack: default
     ## @param metrics.serviceMonitor.annotations Extra annotations for the ServiceMonitor
     ##
     annotations: {}
@@ -1404,7 +1405,7 @@ metrics:
     default:
       ## @param metrics.serviceMonitor.default.enabled Enable default metrics endpoint (`GET /metrics`) to be scraped by the ServiceMonitor
       ##
-      enabled: false
+      enabled: true
       ## @param metrics.serviceMonitor.default.interval Specify the interval at which metrics should be scraped
       ##
       interval: 30s
