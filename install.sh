@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="rabbitmq-cluster"
-APP_VERSION="0.1.3"
+APP_VERSION="0.1.4"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 CHART_DIR="${WORKDIR}/charts/rabbitmq"
@@ -22,6 +22,7 @@ STORAGE_SIZE="8Gi"
 SERVICE_TYPE="ClusterIP"
 AMQP_NODE_PORT="30672"
 MANAGER_NODE_PORT="31672"
+RESOURCE_PROFILE="mid"
 IMAGE_PULL_POLICY="IfNotPresent"
 WAIT_TIMEOUT="10m"
 REGISTRY_REPO="sealos.hub:5000/kube4"
@@ -111,6 +112,7 @@ Core options:
   --service-type <type>                ClusterIP|NodePort|LoadBalancer, default: ${SERVICE_TYPE}
   --amqp-node-port <port>              AMQP NodePort when service is NodePort/LB, default: ${AMQP_NODE_PORT}
   --manager-node-port <port>           Management NodePort when service is NodePort/LB, default: ${MANAGER_NODE_PORT}
+  --resource-profile <name>            Resource profile: low|mid|midd|high, default: ${RESOURCE_PROFILE}
 
 Monitoring:
   --enable-metrics                     Enable RabbitMQ Prometheus metrics, default: true
@@ -136,6 +138,7 @@ Other:
 
 Examples:
   ${cmd} install -y
+  ${cmd} install --resource-profile high -y
   ${cmd} install --service-type NodePort --manager-node-port 31672 --amqp-node-port 30672 -y
   ${cmd} install --disable-servicemonitor --disable-metrics -y
   ${cmd} install --registry harbor.example.com/kube4 --skip-image-prepare -y
@@ -215,6 +218,11 @@ parse_args() {
       --manager-node-port)
         [[ $# -ge 2 ]] || die "Missing value for $1"
         MANAGER_NODE_PORT="$2"
+        shift 2
+        ;;
+      --resource-profile)
+        [[ $# -ge 2 ]] || die "Missing value for $1"
+        RESOURCE_PROFILE="$2"
         shift 2
         ;;
       --enable-metrics)
@@ -334,6 +342,21 @@ normalize_flags() {
     ENABLE_METRICS="true"
   fi
 
+  case "${RESOURCE_PROFILE,,}" in
+    low)
+      RESOURCE_PROFILE="low"
+      ;;
+    mid|midd|middle|medium)
+      RESOURCE_PROFILE="mid"
+      ;;
+    high)
+      RESOURCE_PROFILE="high"
+      ;;
+    *)
+      die "Unsupported resource profile: ${RESOURCE_PROFILE}. Expected low|mid|midd|high"
+      ;;
+  esac
+
   if [[ "${SERVICE_TYPE}" == "NodePort" || "${SERVICE_TYPE}" == "LoadBalancer" ]]; then
     is_valid_nodeport "${AMQP_NODE_PORT}" || die "AMQP NodePort must be in range 30000-32767, got: ${AMQP_NODE_PORT}"
     is_valid_nodeport "${MANAGER_NODE_PORT}" || die "Manager NodePort must be in range 30000-32767, got: ${MANAGER_NODE_PORT}"
@@ -359,6 +382,7 @@ confirm() {
     echo "Replicas                : ${RABBITMQ_REPLICAS}"
     echo "Username                : ${RABBITMQ_USERNAME}"
     echo "StorageClass            : ${STORAGE_CLASS}"
+    echo "Resource profile        : ${RESOURCE_PROFILE}"
     echo "Storage size            : ${STORAGE_SIZE}"
     echo "Service type            : ${SERVICE_TYPE}"
     echo "Metrics                 : ${ENABLE_METRICS}"
@@ -548,10 +572,57 @@ preview_command() {
   echo
 }
 
+build_resource_profile_args() {
+  RESOURCE_HELM_ARGS=(
+    --set "resourcesPreset=none"
+    --set "volumePermissions.resourcesPreset=none"
+  )
+
+  case "${RESOURCE_PROFILE}" in
+    low)
+      RESOURCE_HELM_ARGS+=(
+        --set-string "resources.requests.cpu=250m"
+        --set-string "resources.requests.memory=512Mi"
+        --set-string "resources.limits.cpu=500m"
+        --set-string "resources.limits.memory=1Gi"
+        --set-string "volumePermissions.resources.requests.cpu=20m"
+        --set-string "volumePermissions.resources.requests.memory=32Mi"
+        --set-string "volumePermissions.resources.limits.cpu=100m"
+        --set-string "volumePermissions.resources.limits.memory=64Mi"
+      )
+      ;;
+    mid)
+      RESOURCE_HELM_ARGS+=(
+        --set-string "resources.requests.cpu=500m"
+        --set-string "resources.requests.memory=1Gi"
+        --set-string "resources.limits.cpu=1"
+        --set-string "resources.limits.memory=2Gi"
+        --set-string "volumePermissions.resources.requests.cpu=50m"
+        --set-string "volumePermissions.resources.requests.memory=64Mi"
+        --set-string "volumePermissions.resources.limits.cpu=200m"
+        --set-string "volumePermissions.resources.limits.memory=128Mi"
+      )
+      ;;
+    high)
+      RESOURCE_HELM_ARGS+=(
+        --set-string "resources.requests.cpu=1"
+        --set-string "resources.requests.memory=2Gi"
+        --set-string "resources.limits.cpu=2"
+        --set-string "resources.limits.memory=4Gi"
+        --set-string "volumePermissions.resources.requests.cpu=100m"
+        --set-string "volumePermissions.resources.requests.memory=128Mi"
+        --set-string "volumePermissions.resources.limits.cpu=300m"
+        --set-string "volumePermissions.resources.limits.memory=256Mi"
+      )
+      ;;
+  esac
+}
+
 install_release() {
   local rabbitmq_image os_shell_image
   rabbitmq_image="$(find_image_ref_by_name "rabbitmq")" || die "Unable to resolve rabbitmq image"
   os_shell_image="$(find_image_ref_by_name "os-shell")" || die "Unable to resolve os-shell image"
+  build_resource_profile_args
 
   local helm_cmd=(
     helm upgrade --install "${RELEASE_NAME}" "${CHART_DIR}"
@@ -598,6 +669,8 @@ install_release() {
   if [[ -n "${SERVICE_MONITOR_SCRAPE_TIMEOUT}" && "${ENABLE_SERVICEMONITOR}" == "true" ]]; then
     helm_cmd+=(--set-string "metrics.serviceMonitor.default.scrapeTimeout=${SERVICE_MONITOR_SCRAPE_TIMEOUT}")
   fi
+
+  helm_cmd+=("${RESOURCE_HELM_ARGS[@]}")
 
   if [[ ${#HELM_ARGS[@]} -gt 0 ]]; then
     helm_cmd+=("${HELM_ARGS[@]}")
