@@ -608,3 +608,38 @@ kubectl get servicemonitor -n aict
 - 构建安装包
 - 发布 GitHub Release
 - 挂载 `.run` 和 `.sha256`
+## Built-in Monitoring, Alerts, And Dashboards
+
+Default install now enables:
+
+- `metrics.enabled=true`
+- `metrics.serviceMonitor.default.enabled=true`
+- `metrics.prometheusRule.enabled=true`
+
+Default monitoring resources:
+
+- `ServiceMonitor`
+- `PrometheusRule`
+- Grafana dashboard `ConfigMap`
+
+Grafana auto-import contract:
+
+- dashboard label: `grafana_dashboard=1`
+- platform label: `monitoring.archinfra.io/stack=default`
+- folder annotation: `grafana_folder=Middleware/RabbitMQ`
+
+Built-in alerts:
+
+- `RabbitMQNodeDown`
+- `RabbitMQClusterDown`
+- `RabbitMQClusterPartition`
+- `RabbitMQMemoryHigh`
+
+Built-in dashboard panels:
+
+- Running Nodes
+- Connections
+- Messages Ready
+- Partitions
+- Connections And Consumers
+- Node Memory

@@ -3,7 +3,7 @@
 set -Eeuo pipefail
 
 APP_NAME="rabbitmq-cluster"
-APP_VERSION="0.1.4"
+APP_VERSION="0.1.5"
 PACKAGE_PROFILE="integrated"
 WORKDIR="/tmp/${APP_NAME}-installer"
 CHART_DIR="${WORKDIR}/charts/rabbitmq"
@@ -33,6 +33,7 @@ SKIP_IMAGE_PREPARE="false"
 DELETE_PVC="false"
 ENABLE_METRICS="true"
 ENABLE_SERVICEMONITOR="true"
+ENABLE_PROMETHEUSRULE="true"
 SERVICE_MONITOR_NAMESPACE=""
 SERVICE_MONITOR_INTERVAL="30s"
 SERVICE_MONITOR_SCRAPE_TIMEOUT=""
@@ -119,6 +120,8 @@ Monitoring:
   --disable-metrics                    Disable RabbitMQ Prometheus metrics
   --enable-servicemonitor              Create ServiceMonitor and auto-enable metrics, default: true
   --disable-servicemonitor             Disable ServiceMonitor
+  --enable-prometheusrule              Create PrometheusRule, default: true
+  --disable-prometheusrule             Disable PrometheusRule
   --service-monitor-namespace <ns>     Optional namespace for the ServiceMonitor
   --service-monitor-interval <value>   ServiceMonitor interval, default: ${SERVICE_MONITOR_INTERVAL}
   --service-monitor-scrape-timeout <v> ServiceMonitor scrape timeout
@@ -241,6 +244,14 @@ parse_args() {
         ;;
       --disable-servicemonitor)
         ENABLE_SERVICEMONITOR="false"
+        shift
+        ;;
+      --enable-prometheusrule)
+        ENABLE_PROMETHEUSRULE="true"
+        shift
+        ;;
+      --disable-prometheusrule)
+        ENABLE_PROMETHEUSRULE="false"
         shift
         ;;
       --service-monitor-namespace)
@@ -562,6 +573,17 @@ check_servicemonitor_support() {
   fi
 }
 
+check_prometheusrule_support() {
+  if [[ "${ENABLE_PROMETHEUSRULE}" != "true" ]]; then
+    return 0
+  fi
+
+  if ! kubectl get crd prometheusrules.monitoring.coreos.com >/dev/null 2>&1; then
+    warn "PrometheusRule CRD not found; disabling PrometheusRule for this install"
+    ENABLE_PROMETHEUSRULE="false"
+  fi
+}
+
 preview_command() {
   local rendered=()
   local arg
@@ -651,6 +673,7 @@ install_release() {
     --set-string "service.type=${SERVICE_TYPE}"
     --set "metrics.enabled=${ENABLE_METRICS}"
     --set "metrics.serviceMonitor.default.enabled=${ENABLE_SERVICEMONITOR}"
+    --set "metrics.prometheusRule.enabled=${ENABLE_PROMETHEUSRULE}"
     --set-string "metrics.serviceMonitor.default.interval=${SERVICE_MONITOR_INTERVAL}"
     --set-string "metrics.serviceMonitor.labels.monitoring\\.archinfra\\.io/stack=default"
   )
@@ -668,6 +691,10 @@ install_release() {
 
   if [[ -n "${SERVICE_MONITOR_SCRAPE_TIMEOUT}" && "${ENABLE_SERVICEMONITOR}" == "true" ]]; then
     helm_cmd+=(--set-string "metrics.serviceMonitor.default.scrapeTimeout=${SERVICE_MONITOR_SCRAPE_TIMEOUT}")
+  fi
+
+  if [[ "${ENABLE_PROMETHEUSRULE}" == "true" ]]; then
+    helm_cmd+=(--set-string "metrics.prometheusRule.additionalLabels.monitoring\\.archinfra\\.io/stack=default")
   fi
 
   helm_cmd+=("${RESOURCE_HELM_ARGS[@]}")
@@ -692,6 +719,12 @@ show_post_install_info() {
     echo
     kubectl get servicemonitor -n "${SERVICE_MONITOR_NAMESPACE:-${NAMESPACE}}" "${RELEASE_NAME}" >/dev/null 2>&1 && \
       kubectl get servicemonitor -n "${SERVICE_MONITOR_NAMESPACE:-${NAMESPACE}}" "${RELEASE_NAME}" || true
+  fi
+
+  if kubectl get crd prometheusrules.monitoring.coreos.com >/dev/null 2>&1; then
+    echo
+    kubectl get prometheusrule -n "${NAMESPACE}" "${RELEASE_NAME}" >/dev/null 2>&1 && \
+      kubectl get prometheusrule -n "${NAMESPACE}" "${RELEASE_NAME}" || true
   fi
 }
 
@@ -720,6 +753,11 @@ show_status() {
     echo
     kubectl get servicemonitor -A | grep "${RELEASE_NAME}" || true
   fi
+
+  if kubectl get crd prometheusrules.monitoring.coreos.com >/dev/null 2>&1; then
+    echo
+    kubectl get prometheusrule -A | grep "${RELEASE_NAME}" || true
+  fi
 }
 
 main() {
@@ -737,6 +775,7 @@ main() {
       extract_payload
       load_image_metadata
       check_servicemonitor_support
+      check_prometheusrule_support
       prepare_images
       install_release
       show_post_install_info

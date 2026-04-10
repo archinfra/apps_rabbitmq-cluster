@@ -1,0 +1,177 @@
+{{- if and .Values.metrics.enabled .Values.metrics.dashboards.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "common.names.fullname" . }}-dashboard
+  namespace: {{ include "common.names.namespace" . | quote }}
+  labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
+    {{- if .Values.metrics.dashboards.labels }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.metrics.dashboards.labels "context" $) | nindent 4 }}
+    {{- end }}
+  {{- if .Values.metrics.dashboards.annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.metrics.dashboards.annotations "context" $) | nindent 4 }}
+  {{- end }}
+data:
+  rabbitmq-overview.json: |
+    {
+      "annotations": {
+        "list": []
+      },
+      "editable": true,
+      "panels": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 0,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_running{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "refId": "A"
+            }
+          ],
+          "title": "Running Nodes",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 6,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "refId": "A"
+            }
+          ],
+          "title": "Connections",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 12,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_queue_messages_ready{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "refId": "A"
+            }
+          ],
+          "title": "Messages Ready",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 6,
+            "x": 18,
+            "y": 0
+          },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_partitions{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "refId": "A"
+            }
+          ],
+          "title": "Partitions",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 5
+          },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "legendFormat": "connections",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rabbitmq_queue_consumers{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "legendFormat": "consumers",
+              "refId": "B"
+            }
+          ],
+          "title": "Connections And Consumers",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 5
+          },
+          "targets": [
+            {
+              "expr": "sum(rabbitmq_node_mem_used{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "legendFormat": "memory used",
+              "refId": "A"
+            },
+            {
+              "expr": "sum(rabbitmq_node_mem_limit{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "legendFormat": "memory limit",
+              "refId": "B"
+            }
+          ],
+          "title": "Node Memory",
+          "type": "timeseries",
+          "fieldConfig": {
+            "defaults": {
+              "unit": "bytes"
+            },
+            "overrides": []
+          }
+        }
+      ],
+      "schemaVersion": 39,
+      "style": "dark",
+      "tags": [
+        "archinfra",
+        "rabbitmq"
+      ],
+      "templating": {
+        "list": []
+      },
+      "time": {
+        "from": "now-6h",
+        "to": "now"
+      },
+      "title": "RabbitMQ Cluster Overview",
+      "version": 1
+    }
+{{- end }}
