@@ -1,4 +1,5 @@
 {{- if and .Values.metrics.enabled .Values.metrics.dashboards.enabled }}
+{{- $rabbitmqService := include "common.names.fullname" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -32,7 +33,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(rabbitmq_running{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_running{service=\"{{ $rabbitmqService }}\"})",
               "refId": "A"
             }
           ],
@@ -52,7 +53,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ $rabbitmqService }}\"})",
               "refId": "A"
             }
           ],
@@ -72,7 +73,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(rabbitmq_queue_messages_ready{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_queue_messages_ready{service=\"{{ $rabbitmqService }}\"})",
               "refId": "A"
             }
           ],
@@ -92,7 +93,7 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(rabbitmq_partitions{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_partitions{service=\"{{ $rabbitmqService }}\"})",
               "refId": "A"
             }
           ],
@@ -112,12 +113,12 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ $rabbitmqService }}\"})",
               "legendFormat": "connections",
               "refId": "A"
             },
             {
-              "expr": "sum(rabbitmq_queue_consumers{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_queue_consumers{service=\"{{ $rabbitmqService }}\"})",
               "legendFormat": "consumers",
               "refId": "B"
             }
@@ -138,12 +139,12 @@ data:
           },
           "targets": [
             {
-              "expr": "sum(rabbitmq_node_mem_used{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_node_mem_used{service=\"{{ $rabbitmqService }}\"})",
               "legendFormat": "memory used",
               "refId": "A"
             },
             {
-              "expr": "sum(rabbitmq_node_mem_limit{service=\"{{ template \"common.names.fullname\" . }}\"})",
+              "expr": "sum(rabbitmq_node_mem_limit{service=\"{{ $rabbitmqService }}\"})",
               "legendFormat": "memory limit",
               "refId": "B"
             }
