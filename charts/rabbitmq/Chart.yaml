@@ -4,7 +4,7 @@
 annotations:
   images: |
     - name: os-shell
-      image: sealos.hub:5000/kube4/os-shell:1.37.0-glibc
+      image: sealos.hub:5000/kube4/os-shell:12-r1
     - name: rabbitmq
       image: sealos.hub:5000/kube4/rabbitmq:4.3.6-r1
   licenses: Apache-2.0
