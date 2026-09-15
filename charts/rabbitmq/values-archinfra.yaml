@@ -108,7 +108,7 @@ volumePermissions:
   image:
     registry: sealos.hub:5000
     repository: kube4/os-shell
-    tag: 1.37.0-glibc
+    tag: 12-r1
     pullPolicy: IfNotPresent
   resourcesPreset: none
   resources:
