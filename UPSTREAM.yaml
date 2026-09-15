@@ -10,9 +10,12 @@ rabbitmq:
   version: 4.3.6
   source: rabbitmq/rabbitmq-server
   runtimeStrategy: archinfra-owned-compatible-runtime
+  distribution: official-generic-unix
 
 erlang:
   version: 27.3.4
+  source: erlang/otp
+  build: source
 
 runtime:
   os: debian-12
@@ -41,5 +44,7 @@ upgradePolicy:
 maintenanceRules:
   - Evaluate RabbitMQ security releases independently from the upstream chart appVersion.
   - Do not ship bitnamilegacy RabbitMQ images in the production BOM.
+  - Build Erlang/OTP from a pinned upstream source release and verify its checksum.
+  - Use the official RabbitMQ generic UNIX distribution rather than a Bitnami RabbitMQ binary package.
   - Keep RabbitMQ and Erlang compatibility explicit and CI validated.
   - Validate new installs and supported in-place upgrade paths separately.
