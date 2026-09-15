@@ -41,9 +41,11 @@ jobs:
           - arch: amd64
             runner: ubuntu-24.04
             uname: x86_64
+            kind_sha256: aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d
           - arch: arm64
             runner: ubuntu-24.04-arm
             uname: aarch64
+            kind_sha256: 20022bee6cfcd5086cb7234d218e3454e6090022f2a8f55d1fa7fcf42c3867a2
     runs-on: ${{ matrix.runner }}
 
     steps:
@@ -59,8 +61,15 @@ jobs:
       - name: Install build dependencies
         run: sudo apt-get update && sudo apt-get install -y jq
 
+      - name: Install kind
+        run: |
+          curl -fsSL -o /tmp/kind "https://github.com/kubernetes-sigs/kind/releases/download/v0.33.0/kind-linux-${{ matrix.arch }}"
+          echo "${{ matrix.kind_sha256 }}  /tmp/kind" | sha256sum -c -
+          sudo install -m 0755 /tmp/kind /usr/local/bin/kind
+          kind version
+
       - name: Ensure executable permissions
-        run: chmod +x build.sh install.sh scripts/validate-upstream-contract.py
+        run: chmod +x build.sh install.sh scripts/validate-upstream-contract.py scripts/test-kind-cluster-e2e.sh
 
       - name: Validate production contract
         run: python3 scripts/validate-upstream-contract.py
@@ -97,6 +106,12 @@ jobs:
         run: |
           image="archinfra-payload/os-shell:12-r1-${{ matrix.arch }}"
           docker run --rm "$image" -ec 'command -v bash; command -v find; command -v xargs; command -v chown'
+
+      - name: Run three-node RabbitMQ quorum E2E
+        run: |
+          ./scripts/test-kind-cluster-e2e.sh \
+            "archinfra-payload/rabbitmq:4.3.6-r1-${{ matrix.arch }}" \
+            "archinfra-payload/os-shell:12-r1-${{ matrix.arch }}"
 
       - name: Verify installer checksum
         run: |
