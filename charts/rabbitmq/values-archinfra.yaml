@@ -2,12 +2,17 @@
 # Upstream compatibility lives in values.yaml; production ownership lives here.
 
 global:
+  # Historical archinfra compatibility default. For durable production workloads,
+  # prefer a tested low-latency block/local-SSD/NVMe StorageClass.
   defaultStorageClass: nfs
   security:
     allowInsecureImages: true
 
 archinfra:
   diskFreeLimit: 2GB
+  storage:
+    compatibilityDefault: nfs
+    recommendation: fast-block-or-local-ssd
   monitoring:
     queueReadyWarning: 10000
     queueUnackedWarning: 5000
@@ -21,8 +26,14 @@ image:
   pullPolicy: IfNotPresent
 
 replicaCount: 3
-podAntiAffinityPreset: soft
-terminationGracePeriodSeconds: 120
+# Production replicas should land on distinct Kubernetes nodes. Single-node
+# development/E2E environments must override this to soft explicitly.
+podAntiAffinityPreset: hard
+terminationGracePeriodSeconds: 180
+
+pdb:
+  create: true
+  maxUnavailable: 1
 
 usePasswordFiles: true
 auth:
@@ -45,10 +56,13 @@ clustering:
   forceBoot: false
   rebalance: false
 
+queue_leader_locator: balanced
+
 persistence:
   enabled: true
+  # Compatibility default, not the preferred durable-production storage class.
   storageClass: nfs
-  size: 8Gi
+  size: 20Gi
 
 persistentVolumeClaimRetentionPolicy:
   enabled: true
@@ -64,6 +78,8 @@ resources:
     cpu: "1"
     memory: 2Gi
 
+# Use an absolute watermark so RabbitMQ does not derive a memory threshold from
+# node-visible host memory that can exceed the container cgroup limit.
 memoryHighWatermark:
   enabled: true
   type: absolute
@@ -71,6 +87,8 @@ memoryHighWatermark:
 
 networkPolicy:
   enabled: true
+  # Compatibility baseline. Strict environments should replace these broad
+  # allowances with namespace/pod/CIDR-specific ingress and egress rules.
   allowExternal: true
   allowExternalEgress: true
   addExternalClientAccess: true
@@ -90,7 +108,8 @@ metrics:
     perObject:
       enabled: false
     # RabbitMQ 4.3 recommends the selective detailed endpoint when only a
-    # small set of per-queue/Raft metric families is needed.
+    # small set of per-queue/Raft metric families is needed. Metrics from this
+    # endpoint use the rabbitmq_detailed_ prefix.
     detailed:
       enabled: true
       family:
