@@ -7,6 +7,11 @@ global:
   security:
     allowInsecureImages: true
 
+archinfra:
+  # Absolute RabbitMQ free-disk alarm threshold. Installer resource profiles
+  # override this together with pod memory limits.
+  diskFreeLimit: 2GB
+
 image:
   registry: sealos.hub:5000
   repository: kube4/rabbitmq
@@ -63,11 +68,6 @@ memoryHighWatermark:
   enabled: true
   type: absolute
   value: 1280Mi
-
-# Keep a meaningful disk safety margin above RabbitMQ's development-oriented
-# defaults. Install-time resource profiles may override this value.
-extraConfiguration: |-
-  disk_free_limit.absolute = 2GB
 
 networkPolicy:
   enabled: true
