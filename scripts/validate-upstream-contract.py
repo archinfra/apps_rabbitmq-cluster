@@ -71,7 +71,9 @@ if "sed -i '/^cluster_partition_handling" not in runtime:
 for marker in [
     'semverCompare ">=4.3.0-0"',
     "regexReplaceAll",
-    'dig "archinfra" "diskFreeLimit"',
+    "queue_master_locator",
+    'index .Values "archinfra"',
+    'index $archinfra "diskFreeLimit"',
     "disk_free_limit.absolute = %s",
 ]:
     if marker not in config_secret:
