@@ -11,11 +11,13 @@ rabbitmq:
   source: rabbitmq/rabbitmq-server
   runtimeStrategy: archinfra-owned-compatible-runtime
   distribution: official-generic-unix
+  sha256: aa0ff5de9ff0136dc42eba21dc3a973cc3b286437cdba0f45556e890509c1614
 
 erlang:
-  version: 27.3.4
+  version: 27.3.4.16
   source: erlang/otp
   build: source
+  sha256: b945362f125ecdba4281723595f08716808bafd9137ad153f12e1db917ce8517
 
 runtime:
   os: debian-12
@@ -23,6 +25,7 @@ runtime:
   compatibilityContract: bitnami-rabbitmq-runtime-v1
   bitnamiReference:
     repository: bitnami/containers
+    ref: bcdcdbfba18dbd3483588fb1900f7a4aee9bb450
     path: bitnami/rabbitmq/4.3/debian-12
   note: >-
     The Bitnami runtime shell contract is transitional. Archinfra owns the
