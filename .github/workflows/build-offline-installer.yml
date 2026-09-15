@@ -69,10 +69,12 @@ jobs:
           kind version
 
       - name: Ensure executable permissions
-        run: chmod +x build.sh install.sh scripts/validate-upstream-contract.py scripts/test-kind-cluster-e2e.sh
+        run: chmod +x build.sh install.sh scripts/validate-upstream-contract.py scripts/test-kind-cluster-e2e.sh scripts/rabbitmq-upgrade-preflight.sh
 
       - name: Validate production contract
-        run: python3 scripts/validate-upstream-contract.py
+        run: |
+          python3 scripts/validate-upstream-contract.py
+          bash -n scripts/rabbitmq-upgrade-preflight.sh
 
       - name: Build installer
         run: ./build.sh --arch "${{ matrix.arch }}"
@@ -86,9 +88,13 @@ jobs:
             test -x /opt/bitnami/scripts/rabbitmq/entrypoint.sh
             test -x /opt/bitnami/scripts/rabbitmq/run.sh
             test -x /opt/bitnami/scripts/rabbitmq/nodeshutdown.sh
+            test -x /opt/bitnami/scripts/rabbitmq/waitforsafeshutdown.sh
+            test -x /opt/bitnami/rabbitmq/sbin/rabbitmq-server
+            test -x /opt/bitnami/rabbitmq/sbin/rabbitmqctl
             test -f /opt/bitnami/erlang/releases/27/OTP_VERSION
             grep -Fx "27.3.4.16" /opt/bitnami/erlang/releases/27/OTP_VERSION
-            rabbitmqctl --version | grep -Fx "4.3.6"
+            /opt/bitnami/erlang/bin/erl -noshell -eval '\''io:format("~s", [erlang:system_info(otp_release)]), halt().'\'' | grep -Fx "27"
+            rabbitmqctl --version 2>&1 | grep -Fq "4.3.6"
             ! grep -Fq "cluster_partition_handling = ${RABBITMQ_CLUSTER_PARTITION_HANDLING}" /opt/bitnami/scripts/librabbitmq.sh
             password_file="$(mktemp)"
             cookie_file="$(mktemp)"
