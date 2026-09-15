@@ -1,0 +1,32 @@
+component: rabbitmq-cluster
+
+distribution:
+  version: 16.0.16-archinfra.1
+
+installer:
+  version: 0.2.0
+  auth: kubernetes-secret-file
+
+rabbitmq:
+  version: 4.3.6
+  runtimeRevision: r1
+
+erlang:
+  version: 27.3.4
+
+chart:
+  version: 16.0.16-archinfra.1
+  upstream: bitnami/rabbitmq
+  upstreamVersion: 16.0.16
+
+monitoring:
+  schema: v2
+  dashboards: 2
+
+helper:
+  image: busybox
+  version: 1.37.0-glibc
+
+runtimeContract: bitnami-rabbitmq-runtime-v1
+maintainer: archinfra
+profile: production
