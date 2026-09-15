@@ -7,8 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 chart = (ROOT / "charts/rabbitmq/Chart.yaml").read_text()
 values = (ROOT / "charts/rabbitmq/values-archinfra.yaml").read_text()
 config_secret = (ROOT / "charts/rabbitmq/templates/config-secret.yaml").read_text()
+dashboard = (ROOT / "charts/rabbitmq/templates/grafana-dashboard.yaml").read_text()
 installer = (ROOT / "install.sh").read_text()
 build = (ROOT / "build.sh").read_text()
+e2e = (ROOT / "scripts/test-kind-cluster-e2e.sh").read_text()
 upstream = (ROOT / "UPSTREAM.yaml").read_text()
 version = (ROOT / "VERSION").read_text()
 runtime = (ROOT / "runtime/rabbitmq/Dockerfile").read_text()
@@ -40,6 +42,8 @@ for marker in [
     "installer:\n  version: 0.2.0",
     "rabbitmq:\n  version: 4.3.6",
     "erlang:\n  version: 27.3.4.16",
+    "schema: v2",
+    "dashboards: 2",
 ]:
     if marker not in version:
         raise SystemExit(f"VERSION mismatch: missing {marker!r}")
@@ -79,12 +83,42 @@ for marker in [
     "existingSecretErlangKey: rabbitmq-erlang-cookie",
     "memoryHighWatermark:\n  enabled: true\n  type: absolute\n  value: 1280Mi",
     "rabbitmq:4.3.6-r1",
-    "os-shell",
     "tag: 12-r1",
     "monitoring.archinfra.io/stack: default",
+    "queue_coarse_metrics",
+    "queue_consumer_count",
+    "ra_metrics",
+    "alert: RabbitMQTargetDown",
+    "alert: RabbitMQClusterNodeMissing",
+    "alert: RabbitMQMemoryCritical",
+    "alert: RabbitMQDiskFreeLow",
+    "alert: RabbitMQFileDescriptorsHigh",
+    "alert: RabbitMQErlangProcessesHigh",
+    "alert: RabbitMQQueueReadyBacklogHigh",
+    "alert: RabbitMQQueueUnackedHigh",
+    "alert: RabbitMQRedeliveryRateHigh",
+    "alert: RabbitMQUnroutableMessages",
+    "alert: RabbitMQRaftCommitLagHigh",
+    "alert: RabbitMQPodOOMKilled",
+    "alert: RabbitMQPVCUsageCritical",
 ]:
     if marker not in values and marker not in chart:
         raise SystemExit(f"production values mismatch: missing {marker!r}")
+
+for marker in [
+    'rabbitmq-overview.json',
+    'rabbitmq-queues-performance.json',
+    '"title": "RabbitMQ / Overview"',
+    '"title": "RabbitMQ / Queues & Performance"',
+    "rabbitmq_process_resident_memory_bytes",
+    "rabbitmq_disk_space_available_bytes",
+    "rabbitmq_global_messages_received_total",
+    "rabbitmq_detailed_queue_messages_ready",
+    "rabbitmq_detailed_raft_commit_index",
+    "kubelet_volume_stats_used_bytes",
+]:
+    if marker not in dashboard:
+        raise SystemExit(f"Monitoring V2 dashboard mismatch: missing {marker!r}")
 
 for marker in [
     'APP_VERSION="0.2.0"',
@@ -130,9 +164,19 @@ if "command -v jq" in installer or "jq " in installer:
     raise SystemExit("target installer must not require jq")
 if 'build_context="$(jq -r' not in build:
     raise SystemExit("build.sh must support archinfra-owned image build contexts")
-
 if "/bin/bash" not in helper or "findutils" not in helper:
     raise SystemExit("os-shell helper must satisfy chart bash/find/xargs contract")
+
+for marker in [
+    '"x-queue-type":"quorum"',
+    "publish_and_consume before-failover",
+    "Deleting quorum leader pod",
+    "publish_and_consume after-failover",
+    "list_feature_flags name state",
+    "RabbitMQ three-node quorum E2E: OK",
+]:
+    if marker not in e2e:
+        raise SystemExit(f"cluster E2E mismatch: missing {marker!r}")
 
 for arch in ("amd64", "arm64"):
     entries = [item for item in images if item.get("arch") == arch]
