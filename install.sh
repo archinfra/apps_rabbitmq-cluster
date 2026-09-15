@@ -10,10 +10,13 @@ WORKDIR="/tmp/${APP_NAME}-installer"
 CHART_DIR="${WORKDIR}/charts/rabbitmq"
 IMAGE_DIR="${WORKDIR}/images"
 IMAGE_INDEX="${IMAGE_DIR}/image-index.tsv"
+SCRIPTS_DIR="${WORKDIR}/scripts"
+UPGRADE_PREFLIGHT="${SCRIPTS_DIR}/rabbitmq-upgrade-preflight.sh"
 
 ACTION="help"
 RELEASE_NAME="rabbitmq-cluster"
 NAMESPACE="aict"
+TARGET_SERIES="4.3"
 RABBITMQ_REPLICAS="3"
 RABBITMQ_USERNAME="admin"
 RABBITMQ_PASSWORD=""
@@ -27,7 +30,7 @@ ROTATE_PASSWORD="false"
 ROTATE_ERLANG_COOKIE="false"
 SECRET_IS_EXTERNAL="false"
 STORAGE_CLASS="nfs"
-STORAGE_SIZE="8Gi"
+STORAGE_SIZE="20Gi"
 SERVICE_TYPE="ClusterIP"
 AMQP_NODE_PORT="30672"
 MANAGER_NODE_PORT="31672"
@@ -83,11 +86,12 @@ usage() {
   local cmd="./$(program_name)"
   cat <<EOF
 Usage:
-  ${cmd} <install|uninstall|status|help> [options] [-- <helm_args>]
+  ${cmd} <install|preflight|uninstall|status|help> [options] [-- <helm_args>]
   ${cmd} -h|--help
 
 Actions:
   install       Prepare images and install or upgrade a RabbitMQ 4.3 cluster
+  preflight     Read-only in-place upgrade readiness check for RabbitMQ 4.2/4.3
   uninstall     Uninstall the RabbitMQ release
   status        Show Helm and Kubernetes resource status
   help          Show this message
@@ -95,9 +99,10 @@ Actions:
 Core options:
   -n, --namespace <ns>                 Namespace, default: ${NAMESPACE}
   --release-name <name>                Helm release name, default: ${RELEASE_NAME}
-  --replicas <num>                     RabbitMQ replicas, default: ${RABBITMQ_REPLICAS}
+  --target-series <series>             Preflight target series: 4.2|4.3, default: ${TARGET_SERIES}
+  --replicas <num>                     Odd production replica count >=3, default: ${RABBITMQ_REPLICAS}
   --username <name>                    RabbitMQ application username, default: ${RABBITMQ_USERNAME}
-  --storage-class <name>               StorageClass, default: ${STORAGE_CLASS}
+  --storage-class <name>               StorageClass, default: ${STORAGE_CLASS} (compatibility default)
   --storage-size <size>                PVC size, default: ${STORAGE_SIZE}
   --service-type <type>                ClusterIP|NodePort|LoadBalancer, default: ${SERVICE_TYPE}
   --amqp-node-port <port>              AMQP NodePort, default: ${AMQP_NODE_PORT}
@@ -117,6 +122,8 @@ Authentication:
 
   First install creates ${RELEASE_NAME}-auth with random credentials when no existing
   Secret or input files are provided. Managed credentials are reused on upgrade.
+  Existing Bitnami credentials are copied into the archinfra managed Secret before a
+  series upgrade, so an upgrade never silently rotates the Erlang cookie.
   Password and Erlang cookie values are never passed through Helm CLI values.
 
 Monitoring:
@@ -147,6 +154,7 @@ Examples:
   ${cmd} install --existing-secret rabbitmq-prod-auth -y
   ${cmd} install --resource-profile high --storage-class fast-block -y
   ${cmd} install --registry harbor.example.com/kube4 --registry-user robot --registry-password-file /secure/harbor.password -y
+  ${cmd} preflight --target-series 4.3 -n ${NAMESPACE}
   ${cmd} status -n ${NAMESPACE}
   ${cmd} uninstall --delete-pvc -y
 EOF
@@ -159,9 +167,10 @@ parse_args() {
   if [[ $# -eq 0 ]]; then ACTION="help"; return; fi
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      install|uninstall|status|help) ACTION="$1"; shift ;;
+      install|preflight|uninstall|status|help) ACTION="$1"; shift ;;
       -n|--namespace) [[ $# -ge 2 ]] || die "Missing value for $1"; NAMESPACE="$2"; shift 2 ;;
       --release-name) [[ $# -ge 2 ]] || die "Missing value for $1"; RELEASE_NAME="$2"; shift 2 ;;
+      --target-series) [[ $# -ge 2 ]] || die "Missing value for $1"; TARGET_SERIES="$2"; shift 2 ;;
       --replicas) [[ $# -ge 2 ]] || die "Missing value for $1"; RABBITMQ_REPLICAS="$2"; shift 2 ;;
       --username) [[ $# -ge 2 ]] || die "Missing value for $1"; RABBITMQ_USERNAME="$2"; shift 2 ;;
       --password) [[ $# -ge 2 ]] || die "Missing value for $1"; RABBITMQ_PASSWORD="$2"; shift 2 ;;
@@ -207,10 +216,14 @@ parse_args() {
 is_valid_nodeport() { [[ "$1" =~ ^[0-9]+$ ]] && (( "$1" >= 30000 && "$1" <= 32767 )); }
 
 normalize_flags() {
+  case "${TARGET_SERIES}" in 4.2|4.3) ;; *) die "--target-series must be 4.2 or 4.3" ;; esac
   case "${SERVICE_TYPE}" in ClusterIP|NodePort|LoadBalancer) ;; *) die "Unsupported service type: ${SERVICE_TYPE}" ;; esac
   case "${IMAGE_PULL_POLICY}" in Always|IfNotPresent|Never) ;; *) die "Unsupported image pull policy: ${IMAGE_PULL_POLICY}" ;; esac
   [[ "${RABBITMQ_REPLICAS}" =~ ^[0-9]+$ ]] || die "--replicas must be an integer"
-  (( RABBITMQ_REPLICAS >= 1 )) || die "--replicas must be at least 1"
+  if [[ "${ACTION}" == "install" ]]; then
+    (( RABBITMQ_REPLICAS >= 3 )) || die "production RabbitMQ requires at least 3 replicas"
+    (( RABBITMQ_REPLICAS % 2 == 1 )) || die "production RabbitMQ replica count must be odd (3, 5, ...)"
+  fi
 
   if [[ "${ENABLE_SERVICEMONITOR}" == "true" || "${ENABLE_PROMETHEUSRULE}" == "true" ]]; then ENABLE_METRICS="true"; fi
   case "${RESOURCE_PROFILE,,}" in
@@ -241,17 +254,29 @@ normalize_flags() {
   local arg lower
   for arg in "${HELM_ARGS[@]}"; do
     lower="${arg,,}"
-    if [[ "${lower}" == *"auth.password"* || "${lower}" == *"auth.erlangcookie"* || "${lower}" == *"rabbitmq-password="* || "${lower}" == *"rabbitmq-erlang-cookie="* ]]; then
-      die "Do not pass RabbitMQ credentials through Helm extra args; use Secret-oriented installer options"
+    if [[ "${lower}" == *"auth.password"* || "${lower}" == *"auth.erlangcookie"* || "${lower}" == *"auth.existingpasswordsecret"* || "${lower}" == *"auth.existingerlangsecret"* || "${lower}" == *"auth.existingsecretpasswordkey"* || "${lower}" == *"auth.existingsecreterlangkey"* || "${lower}" == *"usepasswordfiles"* || "${lower}" == *"rabbitmq-password="* || "${lower}" == *"rabbitmq-erlang-cookie="* ]]; then
+      die "Do not override RabbitMQ credential/Secret settings through Helm extra args; use Secret-oriented installer options"
     fi
   done
 }
 
 check_deps() {
-  command -v helm >/dev/null 2>&1 || die "helm is required"
   command -v kubectl >/dev/null 2>&1 || die "kubectl is required"
-  command -v base64 >/dev/null 2>&1 || die "base64 is required"
-  if [[ "${ACTION}" == "install" && "${SKIP_IMAGE_PREPARE}" != "true" ]]; then command -v docker >/dev/null 2>&1 || die "docker is required unless --skip-image-prepare is used"; fi
+  case "${ACTION}" in
+    install|uninstall|status) command -v helm >/dev/null 2>&1 || die "helm is required" ;;
+  esac
+  if [[ "${ACTION}" == "install" ]]; then
+    command -v base64 >/dev/null 2>&1 || die "base64 is required"
+    if [[ "${SKIP_IMAGE_PREPARE}" != "true" ]]; then command -v docker >/dev/null 2>&1 || die "docker is required unless --skip-image-prepare is used"; fi
+  fi
+}
+
+validate_storage_policy() {
+  [[ "${ACTION}" == "install" ]] || return 0
+  if [[ "${STORAGE_CLASS,,}" == *nfs* ]]; then
+    warn "StorageClass '${STORAGE_CLASS}' is the archinfra compatibility default, not the preferred RabbitMQ production storage."
+    warn "For durable Quorum Queues/Streams prefer low-latency block storage or local SSD/NVMe with tested failure semantics."
+  fi
 }
 
 confirm() {
@@ -304,6 +329,7 @@ extract_payload() {
   [[ -d "${CHART_DIR}" ]] || die "Missing chart payload"
   [[ -f "${CHART_DIR}/values-archinfra.yaml" ]] || die "Missing archinfra production values"
   [[ -f "${IMAGE_INDEX}" ]] || die "Missing image metadata payload"
+  [[ -f "${UPGRADE_PREFLIGHT}" ]] || die "Missing RabbitMQ upgrade preflight payload"
 }
 
 image_name_from_ref() { local ref="$1" name_tag="${ref##*/}"; echo "${name_tag%%:*}"; }
@@ -385,6 +411,53 @@ stop_cluster_for_cookie_rotation() {
   COOKIE_ROTATION_DOWNTIME="true"
 }
 
+current_auth_secret_candidates() {
+  local sts
+  sts="$(kubectl get sts -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${RELEASE_NAME}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  [[ -n "${sts}" ]] || return 0
+  kubectl get sts "${sts}" -n "${NAMESPACE}" -o go-template='{{range .spec.template.spec.volumes}}{{if eq .name "rabbitmq-secrets"}}{{range .projected.sources}}{{if .secret}}{{.secret.name}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}' 2>/dev/null || true
+  kubectl get secret -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${RELEASE_NAME},app.kubernetes.io/name=rabbitmq" -o name 2>/dev/null | sed 's#^secret/##' || true
+}
+
+find_unique_secret_for_key() {
+  local key="$1" candidate found=""
+  while IFS= read -r candidate; do
+    [[ -n "${candidate}" ]] || continue
+    if secret_has_key "${candidate}" "${key}"; then
+      if [[ -n "${found}" && "${found}" != "${candidate}" ]]; then
+        die "Multiple existing Secrets contain ${key}; use --existing-secret explicitly"
+      fi
+      found="${candidate}"
+    fi
+  done < <(current_auth_secret_candidates | sort -u)
+  [[ -n "${found}" ]] || return 1
+  printf '%s' "${found}"
+}
+
+migrate_existing_auth_secret_if_needed() {
+  [[ "${SECRET_IS_EXTERNAL}" == "false" ]] || return 0
+  release_exists || return 0
+  kubectl get secret "${RABBITMQ_SECRET_NAME}" -n "${NAMESPACE}" >/dev/null 2>&1 && return 0
+
+  local password_source cookie_source password_file cookie_file
+  password_source="$(find_unique_secret_for_key "${RABBITMQ_PASSWORD_KEY}" || true)"
+  cookie_source="$(find_unique_secret_for_key "${RABBITMQ_ERLANG_COOKIE_KEY}" || true)"
+  [[ -n "${password_source}" && -n "${cookie_source}" ]] || die "Existing RabbitMQ release found but current credentials could not be identified safely. Re-run with --existing-secret <name>."
+
+  password_file="${WORKDIR}/.migrated-rabbitmq-password"
+  cookie_file="${WORKDIR}/.migrated-rabbitmq-erlang-cookie"
+  secret_key_to_file "${password_source}" "${RABBITMQ_PASSWORD_KEY}" "${password_file}"
+  secret_key_to_file "${cookie_source}" "${RABBITMQ_ERLANG_COOKIE_KEY}" "${cookie_file}"
+  kubectl create secret generic "${RABBITMQ_SECRET_NAME}" -n "${NAMESPACE}" \
+    --from-file="${RABBITMQ_PASSWORD_KEY}=${password_file}" \
+    --from-file="${RABBITMQ_ERLANG_COOKIE_KEY}=${cookie_file}" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  rm -f "${password_file}" "${cookie_file}"
+  kubectl label secret "${RABBITMQ_SECRET_NAME}" -n "${NAMESPACE}" \
+    app.kubernetes.io/managed-by=archinfra app.kubernetes.io/instance="${RELEASE_NAME}" app.kubernetes.io/name=rabbitmq --overwrite >/dev/null
+  success "Copied existing RabbitMQ password/cookie into managed Secret ${RABBITMQ_SECRET_NAME} without rotation"
+}
+
 ensure_auth_secret() {
   ensure_namespace
   if [[ "${SECRET_IS_EXTERNAL}" == "true" ]]; then
@@ -394,6 +467,8 @@ ensure_auth_secret() {
     success "Using external RabbitMQ Secret ${RABBITMQ_SECRET_NAME}"
     return 0
   fi
+
+  migrate_existing_auth_secret_if_needed
 
   local password_file="${WORKDIR}/.rabbitmq-password" cookie_file="${WORKDIR}/.rabbitmq-erlang-cookie"
   local exists="false"
@@ -425,13 +500,23 @@ ensure_auth_secret() {
   success "RabbitMQ authentication Secret ${RABBITMQ_SECRET_NAME} is ready"
 }
 
+run_upgrade_preflight() {
+  local target="${1:-4.3}"
+  [[ -f "${UPGRADE_PREFLIGHT}" ]] || die "Upgrade preflight script is missing from the offline payload"
+  bash "${UPGRADE_PREFLIGHT}" -n "${NAMESPACE}" --release-name "${RELEASE_NAME}" --target-series "${target}"
+}
+
 check_existing_series_upgrade() {
   release_exists || return 0
   local existing_image
   existing_image="$(kubectl get sts -n "${NAMESPACE}" -l "app.kubernetes.io/instance=${RELEASE_NAME}" -o jsonpath='{.items[0].spec.template.spec.containers[?(@.name=="rabbitmq")].image}' 2>/dev/null || true)"
   case "${existing_image}" in
-    *:4.1.*|*-4.1.*) die "Direct RabbitMQ 4.1.x -> 4.3.x upgrade is unsupported. Use the documented 4.1 -> 4.2 -> 4.3 migration path." ;;
-    *:4.2.*|*-4.2.*) die "RabbitMQ 4.2.x -> 4.3.x requires feature-flag/Khepri preflight. Use the documented staged migration workflow." ;;
+    *:4.1.*|*-4.1.*) die "Direct RabbitMQ 4.1.x -> 4.3.x upgrade is unsupported. Upgrade first to the latest 4.2.x patch (4.2.10 baseline), enable all required feature flags/Khepri, then run this 4.3 installer." ;;
+    *:4.2.*|*-4.2.*)
+      warn "RabbitMQ 4.2.x -> 4.3.x requires feature-flag/Khepri preflight; running read-only checks now."
+      run_upgrade_preflight 4.3
+      success "RabbitMQ 4.2 -> 4.3 upgrade preflight passed"
+      ;;
   esac
 }
 
@@ -526,8 +611,9 @@ main() {
   parse_args "$@"; normalize_flags; banner
   case "${ACTION}" in
     help) usage ;;
+    preflight) check_deps; extract_payload; run_upgrade_preflight "${TARGET_SERIES}" ;;
     install)
-      check_deps; confirm; extract_payload; load_image_metadata; ensure_namespace; check_existing_series_upgrade; check_servicemonitor_support; check_prometheusrule_support; prepare_images; ensure_auth_secret; install_release; show_post_install_info ;;
+      check_deps; validate_storage_policy; confirm; extract_payload; load_image_metadata; ensure_namespace; check_existing_series_upgrade; check_servicemonitor_support; check_prometheusrule_support; prepare_images; ensure_auth_secret; install_release; show_post_install_info ;;
     uninstall) check_deps; confirm; uninstall_release ;;
     status) check_deps; show_status ;;
     *) die "Unsupported action: ${ACTION}" ;;
