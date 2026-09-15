@@ -95,7 +95,9 @@ COPY --from=rabbitmq-dist /opt/bitnami/rabbitmq /opt/bitnami/rabbitmq
 COPY --from=bitnami-source /src/bitnami-containers/bitnami/rabbitmq/4.3/debian-12/prebuildfs /
 COPY --from=bitnami-source /src/bitnami-containers/bitnami/rabbitmq/4.3/debian-12/rootfs /
 
-RUN mkdir -p \
+RUN sed -i '/^cluster_partition_handling = ${RABBITMQ_CLUSTER_PARTITION_HANDLING}$/d' /opt/bitnami/scripts/librabbitmq.sh \
+    && ! grep -Fq 'cluster_partition_handling = ${RABBITMQ_CLUSTER_PARTITION_HANDLING}' /opt/bitnami/scripts/librabbitmq.sh \
+    && mkdir -p \
       /bitnami/rabbitmq \
       /opt/bitnami/rabbitmq/.rabbitmq \
       /opt/bitnami/rabbitmq/etc/rabbitmq \
@@ -108,7 +110,7 @@ RUN mkdir -p \
     && find / -xdev -perm /6000 -type f -exec chmod a-s {} \; || true
 
 RUN /opt/bitnami/erlang/bin/erl -noshell -eval 'io:format("OTP ~s~n", [erlang:system_info(otp_release)]), halt().' \
-    && /opt/bitnami/rabbitmq/sbin/rabbitmqctl version | grep -F "${RABBITMQ_VERSION}"
+    && /opt/bitnami/rabbitmq/sbin/rabbitmqctl --version | grep -F "${RABBITMQ_VERSION}"
 
 EXPOSE 4369 5551 5552 5671 5672 9419 15671 15672 25672
 USER 1001
