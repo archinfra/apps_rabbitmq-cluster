@@ -79,6 +79,15 @@ for marker in [
 
 for marker in [
     "diskFreeLimit: 2GB",
+    "compatibilityDefault: nfs",
+    "recommendation: fast-block-or-local-ssd",
+    "replicaCount: 3",
+    "podAntiAffinityPreset: hard",
+    "terminationGracePeriodSeconds: 180",
+    "maxUnavailable: 1",
+    "storageClass: nfs",
+    "size: 20Gi",
+    "queue_leader_locator: balanced",
     "usePasswordFiles: true",
     "existingSecretPasswordKey: rabbitmq-password",
     "existingSecretErlangKey: rabbitmq-erlang-cookie",
@@ -107,8 +116,8 @@ for marker in [
         raise SystemExit(f"production values mismatch: missing {marker!r}")
 
 for marker in [
-    'rabbitmq-overview.json',
-    'rabbitmq-queues-performance.json',
+    "rabbitmq-overview.json",
+    "rabbitmq-queues-performance.json",
     '"title": "RabbitMQ / Overview"',
     '"title": "RabbitMQ / Queues & Performance"',
     "rabbitmq_process_resident_memory_bytes",
@@ -124,6 +133,8 @@ for marker in [
 
 for marker in [
     'APP_VERSION="0.2.0"',
+    'STORAGE_SIZE="20Gi"',
+    'install|preflight|uninstall|status|help',
     'RABBITMQ_PASSWORD=""',
     'RABBITMQ_ERLANG_COOKIE=""',
     'REGISTRY_USER=""',
@@ -140,6 +151,10 @@ for marker in [
     '-f "${CHART_DIR}/values-archinfra.yaml"',
     "Direct RabbitMQ 4.1.x -> 4.3.x upgrade is unsupported",
     "RabbitMQ 4.2.x -> 4.3.x requires feature-flag/Khepri preflight",
+    "run_upgrade_preflight 4.3",
+    "Copied existing RabbitMQ password/cookie into managed Secret",
+    "production RabbitMQ requires at least 3 replicas",
+    "production RabbitMQ replica count must be odd",
     "Scaling ${sts} to 0 before Erlang cookie rotation",
     "memoryHighWatermark.value=640Mi",
     "memoryHighWatermark.value=1280Mi",
@@ -147,6 +162,7 @@ for marker in [
     "archinfra.diskFreeLimit=1GB",
     "archinfra.diskFreeLimit=2GB",
     "archinfra.diskFreeLimit=4GB",
+    "compatibility default, not the preferred RabbitMQ production storage",
 ]:
     if marker not in installer:
         raise SystemExit(f"installer contract mismatch: missing {marker!r}")
@@ -168,7 +184,7 @@ if 'build_context="$(jq -r' not in build:
     raise SystemExit("build.sh must support archinfra-owned image build contexts")
 for marker in [
     'SCRIPTS_DIR="${ROOT_DIR}/scripts"',
-    'rabbitmq-upgrade-preflight.sh',
+    "rabbitmq-upgrade-preflight.sh",
     'tar -tzf "${PAYLOAD_FILE}" | grep -Fq',
 ]:
     if marker not in build:
@@ -189,9 +205,13 @@ for marker in [
 
 for marker in [
     '"x-queue-type":"quorum"',
-    "publish_and_consume before-failover",
+    "delivery_mode",
+    "baseline-before-failover",
+    "durable-message-across-leader-failure",
     "Deleting quorum leader pod",
+    "consume_expect durable-message-across-leader-failure",
     "publish_and_consume after-failover",
+    "len(members) >= 3",
     "list_feature_flags name state",
     "RabbitMQ three-node quorum E2E: OK",
 ]:
