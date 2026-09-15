@@ -34,7 +34,7 @@ runtime:
 
 images:
   rabbitmq: sealos.hub:5000/kube4/rabbitmq:4.3.6-r1
-  helper: sealos.hub:5000/kube4/os-shell:1.37.0-glibc
+  helper: sealos.hub:5000/kube4/os-shell:12-r1
 
 upgradePolicy:
   supportedSeriesPath:
@@ -50,4 +50,5 @@ maintenanceRules:
   - Build Erlang/OTP from a pinned upstream source release and verify its checksum.
   - Use the official RabbitMQ generic UNIX distribution rather than a Bitnami RabbitMQ binary package.
   - Keep RabbitMQ and Erlang compatibility explicit and CI validated.
+  - Keep helper images compatible with chart shell contracts instead of swapping them by name only.
   - Validate new installs and supported in-place upgrade paths separately.
