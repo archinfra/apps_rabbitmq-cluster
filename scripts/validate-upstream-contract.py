@@ -11,6 +11,7 @@ dashboard = (ROOT / "charts/rabbitmq/templates/grafana-dashboard.yaml").read_tex
 installer = (ROOT / "install.sh").read_text()
 build = (ROOT / "build.sh").read_text()
 e2e = (ROOT / "scripts/test-kind-cluster-e2e.sh").read_text()
+preflight = (ROOT / "scripts/rabbitmq-upgrade-preflight.sh").read_text()
 upstream = (ROOT / "UPSTREAM.yaml").read_text()
 version = (ROOT / "VERSION").read_text()
 runtime = (ROOT / "runtime/rabbitmq/Dockerfile").read_text()
@@ -115,6 +116,7 @@ for marker in [
     "rabbitmq_global_messages_received_total",
     "rabbitmq_detailed_queue_messages_ready",
     "rabbitmq_detailed_raft_commit_index",
+    "rabbitmq_detailed_raft_last_written_index",
     "kubelet_volume_stats_used_bytes",
 ]:
     if marker not in dashboard:
@@ -164,8 +166,26 @@ if "command -v jq" in installer or "jq " in installer:
     raise SystemExit("target installer must not require jq")
 if 'build_context="$(jq -r' not in build:
     raise SystemExit("build.sh must support archinfra-owned image build contexts")
+for marker in [
+    'SCRIPTS_DIR="${ROOT_DIR}/scripts"',
+    'rabbitmq-upgrade-preflight.sh',
+    'tar -tzf "${PAYLOAD_FILE}" | grep -Fq',
+]:
+    if marker not in build:
+        raise SystemExit(f"offline package contract mismatch: missing {marker!r}")
 if "/bin/bash" not in helper or "findutils" not in helper:
     raise SystemExit("os-shell helper must satisfy chart bash/find/xargs contract")
+
+for marker in [
+    "--target-series",
+    "unsupported RabbitMQ series transition",
+    "check_if_node_is_quorum_critical",
+    "list_feature_flags name state",
+    "khepri_db is not enabled",
+    "Upgrade preflight: PASS",
+]:
+    if marker not in preflight:
+        raise SystemExit(f"upgrade preflight contract mismatch: missing {marker!r}")
 
 for marker in [
     '"x-queue-type":"quorum"',
