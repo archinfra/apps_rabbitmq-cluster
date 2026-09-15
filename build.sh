@@ -10,6 +10,7 @@ DIST_DIR="${ROOT_DIR}/dist"
 IMAGES_DIR="${ROOT_DIR}/images"
 IMAGE_JSON="${IMAGES_DIR}/image.json"
 CHART_DIR="${ROOT_DIR}/charts/rabbitmq"
+SCRIPTS_DIR="${ROOT_DIR}/scripts"
 INSTALLER_TEMPLATE="${ROOT_DIR}/install.sh"
 INSTALLER_BASENAME="rabbitmq-cluster-installer"
 
@@ -62,7 +63,9 @@ check_requirements() {
   [[ -f "${INSTALLER_TEMPLATE}" ]] || die "install.sh is missing"
   [[ -f "${IMAGE_JSON}" ]] || die "images/image.json is missing"
   [[ -d "${CHART_DIR}" ]] || die "charts/rabbitmq is missing"
+  [[ -f "${SCRIPTS_DIR}/rabbitmq-upgrade-preflight.sh" ]] || die "upgrade preflight script is missing"
   grep -q '^__PAYLOAD_BELOW__$' "${INSTALLER_TEMPLATE}" || die "install.sh is missing __PAYLOAD_BELOW__ marker"
+  bash -n "${SCRIPTS_DIR}/rabbitmq-upgrade-preflight.sh"
 }
 
 prepare_chart_dependencies() {
@@ -72,7 +75,7 @@ prepare_chart_dependencies() {
 
 prepare_directories() {
   rm -rf "${TEMP_DIR}"
-  mkdir -p "${PAYLOAD_DIR}/charts" "${PAYLOAD_DIR}/images" "${DIST_DIR}"
+  mkdir -p "${PAYLOAD_DIR}/charts" "${PAYLOAD_DIR}/images" "${PAYLOAD_DIR}/scripts" "${DIST_DIR}"
 }
 
 image_name_tag_from_ref() { local ref="$1"; echo "${ref##*/}"; }
@@ -121,8 +124,11 @@ package_payload() {
   local arch="$1" installer_path="${DIST_DIR}/${INSTALLER_BASENAME}-${arch}.run"
   local checksum_path="${installer_path}.sha256"
   cp -R "${CHART_DIR}" "${PAYLOAD_DIR}/charts/"
+  cp "${SCRIPTS_DIR}/rabbitmq-upgrade-preflight.sh" "${PAYLOAD_DIR}/scripts/"
+  chmod 0755 "${PAYLOAD_DIR}/scripts/rabbitmq-upgrade-preflight.sh"
   tar -C "${PAYLOAD_DIR}" -czf "${PAYLOAD_FILE}" .
   tar -tzf "${PAYLOAD_FILE}" >/dev/null
+  tar -tzf "${PAYLOAD_FILE}" | grep -Fq './scripts/rabbitmq-upgrade-preflight.sh'
   cat "${INSTALLER_TEMPLATE}" "${PAYLOAD_FILE}" > "${installer_path}"
   chmod +x "${installer_path}"
   sha256sum "${installer_path}" | awk '{print $1}' > "${checksum_path}"
