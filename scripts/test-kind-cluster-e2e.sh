@@ -38,6 +38,7 @@ helm upgrade --install "${RELEASE}" charts/rabbitmq \
   -f charts/rabbitmq/values-archinfra.yaml \
   --wait --timeout 12m \
   --set replicaCount=3 \
+  --set-string podAntiAffinityPreset=soft \
   --set persistence.enabled=false \
   --set networkPolicy.enabled=false \
   --set metrics.serviceMonitor.default.enabled=false \
@@ -63,7 +64,7 @@ for ordinal in 0 1 2; do
   pod="${RELEASE}-${ordinal}"
   kubectl exec -n "${NAMESPACE}" "${pod}" -- rabbitmq-diagnostics -q check_running
   kubectl exec -n "${NAMESPACE}" "${pod}" -- rabbitmq-diagnostics -q check_local_alarms
-  kubectl exec -n "${NAMESPACE}" "${pod}" -- rabbitmqctl --version | grep -Fx '4.3.6'
+  kubectl exec -n "${NAMESPACE}" "${pod}" -- rabbitmqctl --version 2>&1 | grep -Fq '4.3.6'
 done
 
 cluster_status="$(kubectl exec -n "${NAMESPACE}" "${RELEASE}-0" -- rabbitmqctl cluster_status)"
@@ -87,17 +88,24 @@ import json, sys
 q = json.loads(sys.argv[1])
 assert q.get('type') == 'quorum', q
 assert q.get('durable') is True, q
+assert q.get('leader'), q
+members = q.get('members') or []
+assert len(members) >= 3, q
 print('quorum queue leader:', q.get('leader'))
+print('quorum queue members:', members)
 PY
 
-publish_and_consume() {
-  local payload="$1"
-  local publish get
-  publish="$(api POST '/api/exchanges/%2F/amq.default/publish' "{\"properties\":{},\"routing_key\":\"archinfra-quorum\",\"payload\":\"${payload}\",\"payload_encoding\":\"string\"}")"
+publish_message() {
+  local payload="$1" publish
+  publish="$(api POST '/api/exchanges/%2F/amq.default/publish' "{\"properties\":{\"delivery_mode\":2},\"routing_key\":\"archinfra-quorum\",\"payload\":\"${payload}\",\"payload_encoding\":\"string\"}")"
   python3 - "${publish}" <<'PY'
 import json, sys
 assert json.loads(sys.argv[1]).get('routed') is True
 PY
+}
+
+consume_expect() {
+  local payload="$1" get
   get="$(api POST '/api/queues/%2F/archinfra-quorum/get' '{"count":1,"ackmode":"ack_requeue_false","encoding":"auto","truncate":50000}')"
   python3 - "${get}" "${payload}" <<'PY'
 import json, sys
@@ -107,7 +115,13 @@ assert items[0].get('payload') == sys.argv[2], items
 PY
 }
 
-publish_and_consume before-failover
+publish_and_consume() {
+  local payload="$1"
+  publish_message "${payload}"
+  consume_expect "${payload}"
+}
+
+publish_and_consume baseline-before-failover
 
 queue_json="$(api GET '/api/queues/%2F/archinfra-quorum')"
 leader_node="$(python3 - "${queue_json}" <<'PY'
@@ -118,18 +132,24 @@ PY
 [[ -n "${leader_node}" ]] || { echo "quorum queue leader not reported" >&2; exit 1; }
 leader_host="${leader_node#rabbit@}"
 leader_pod="${leader_host%%.*}"
+
+# Persist a message before terminating the current quorum leader. The test only
+# passes if the message can be consumed after leader election/recovery.
+publish_message durable-message-across-leader-failure
+
 echo "Deleting quorum leader pod: ${leader_pod}"
 kubectl delete pod -n "${NAMESPACE}" "${leader_pod}" --wait=true
 kubectl wait --for=condition=Ready pod -n "${NAMESPACE}" "${leader_pod}" --timeout=5m
 kubectl rollout status statefulset/${RELEASE} -n "${NAMESPACE}" --timeout=5m
 
 # The API helper always executes through pod 0. If pod 0 was the deleted leader,
-# give its management listener a short readiness window after the Kubernetes Ready condition.
+# give its management listener a short readiness window after Kubernetes Ready.
 for _ in $(seq 1 30); do
   if api GET '/api/health/checks/ready-to-serve-clients' >/dev/null 2>&1; then break; fi
   sleep 2
 done
 api GET '/api/health/checks/ready-to-serve-clients' >/dev/null
+consume_expect durable-message-across-leader-failure
 publish_and_consume after-failover
 
 post_queue_json="$(api GET '/api/queues/%2F/archinfra-quorum')"
@@ -139,7 +159,10 @@ q = json.loads(sys.argv[1])
 assert q.get('type') == 'quorum', q
 assert q.get('state') == 'running', q
 assert q.get('leader'), q
+members = q.get('members') or []
+assert len(members) >= 3, q
 print('post-failover quorum leader:', q['leader'])
+print('post-failover quorum members:', members)
 PY
 
 kubectl exec -n "${NAMESPACE}" "${RELEASE}-0" -- rabbitmqctl list_feature_flags name state | tee /tmp/rabbitmq-feature-flags.txt
