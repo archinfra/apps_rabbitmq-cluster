@@ -1,6 +1,5 @@
 # Archinfra production defaults layered on top of the upstream-derived values.yaml.
-# Keep this file small and intentional: upstream compatibility lives in values.yaml,
-# production ownership lives here, and installer/user overrides are applied last.
+# Upstream compatibility lives in values.yaml; production ownership lives here.
 
 global:
   defaultStorageClass: nfs
@@ -8,9 +7,12 @@ global:
     allowInsecureImages: true
 
 archinfra:
-  # Absolute RabbitMQ free-disk alarm threshold. Installer resource profiles
-  # override this together with pod memory limits.
   diskFreeLimit: 2GB
+  monitoring:
+    queueReadyWarning: 10000
+    queueUnackedWarning: 5000
+    redeliveryRateWarning: 10
+    raftIndexLagWarning: 1000
 
 image:
   registry: sealos.hub:5000
@@ -62,8 +64,6 @@ resources:
     cpu: "1"
     memory: 2Gi
 
-# Absolute thresholds are deliberate for Kubernetes: they stay tied to the pod
-# cgroup limit instead of host memory discovery.
 memoryHighWatermark:
   enabled: true
   type: absolute
@@ -89,12 +89,165 @@ metrics:
       scrapeTimeout: ""
     perObject:
       enabled: false
+    # RabbitMQ 4.3 recommends the selective detailed endpoint when only a
+    # small set of per-queue/Raft metric families is needed.
     detailed:
-      enabled: false
+      enabled: true
+      family:
+        - queue_coarse_metrics
+        - queue_consumer_count
+        - ra_metrics
+      interval: 30s
+      scrapeTimeout: ""
   prometheusRule:
     enabled: true
     additionalLabels:
       monitoring.archinfra.io/stack: default
+    rules:
+      - alert: RabbitMQTargetDown
+        expr: up{service="{{ template "common.names.fullname" . }}"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: RabbitMQ Prometheus target is down
+          description: Prometheus cannot scrape a RabbitMQ node for 5 minutes.
+      - alert: RabbitMQClusterNodeMissing
+        expr: (count(rabbitmq_identity_info{service="{{ template "common.names.fullname" . }}"}) or vector(0)) < {{ .Values.replicaCount }}
+        for: 5m
+        labels:
+          severity: critical
+          category: availability
+        annotations:
+          summary: RabbitMQ cluster has fewer running nodes than expected
+          description: The number of RabbitMQ identities is below the configured replica count.
+      - alert: RabbitMQMemoryHigh
+        expr: rabbitmq_process_resident_memory_bytes{service="{{ template "common.names.fullname" . }}"} / clamp_min(rabbitmq_resident_memory_limit_bytes{service="{{ template "common.names.fullname" . }}"}, 1) > 0.80
+        for: 10m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: RabbitMQ memory usage exceeds 80% of the configured watermark
+          description: Sustained high memory usage can trigger publisher flow control.
+      - alert: RabbitMQMemoryCritical
+        expr: rabbitmq_process_resident_memory_bytes{service="{{ template "common.names.fullname" . }}"} / clamp_min(rabbitmq_resident_memory_limit_bytes{service="{{ template "common.names.fullname" . }}"}, 1) > 0.95
+        for: 5m
+        labels:
+          severity: critical
+          category: capacity
+        annotations:
+          summary: RabbitMQ memory usage is near the configured watermark
+          description: RabbitMQ is close to its memory alarm threshold.
+      - alert: RabbitMQDiskFreeLow
+        expr: rabbitmq_disk_space_available_bytes{service="{{ template "common.names.fullname" . }}"} < rabbitmq_disk_space_available_limit_bytes{service="{{ template "common.names.fullname" . }}"}
+        for: 5m
+        labels:
+          severity: critical
+          category: storage
+        annotations:
+          summary: RabbitMQ disk free alarm threshold reached
+          description: Available disk space is below RabbitMQ's configured free-disk limit.
+      - alert: RabbitMQFileDescriptorsHigh
+        expr: rabbitmq_process_open_fds{service="{{ template "common.names.fullname" . }}"} / clamp_min(rabbitmq_process_max_fds{service="{{ template "common.names.fullname" . }}"}, 1) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: RabbitMQ file descriptor usage is high
+          description: File descriptor usage has exceeded 85% for 10 minutes.
+      - alert: RabbitMQErlangProcessesHigh
+        expr: rabbitmq_erlang_processes_used{service="{{ template "common.names.fullname" . }}"} / clamp_min(rabbitmq_erlang_processes_limit{service="{{ template "common.names.fullname" . }}"}, 1) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          category: capacity
+        annotations:
+          summary: RabbitMQ Erlang process usage is high
+          description: Erlang process usage has exceeded 85% of the VM limit.
+      - alert: RabbitMQQueueReadyBacklogHigh
+        expr: sum(rabbitmq_detailed_queue_messages_ready{service="{{ template "common.names.fullname" . }}"}) > {{ .Values.archinfra.monitoring.queueReadyWarning }}
+        for: 15m
+        labels:
+          severity: warning
+          category: queue
+        annotations:
+          summary: RabbitMQ ready-message backlog is high
+          description: Total ready-message backlog exceeded the configured warning threshold.
+      - alert: RabbitMQQueueUnackedHigh
+        expr: sum(rabbitmq_detailed_queue_messages_unacked{service="{{ template "common.names.fullname" . }}"}) > {{ .Values.archinfra.monitoring.queueUnackedWarning }}
+        for: 15m
+        labels:
+          severity: warning
+          category: queue
+        annotations:
+          summary: RabbitMQ unacknowledged-message count is high
+          description: Consumers are holding more unacknowledged messages than the configured threshold.
+      - alert: RabbitMQRedeliveryRateHigh
+        expr: sum(rate(rabbitmq_global_messages_redelivered_total{service="{{ template "common.names.fullname" . }}"}[5m])) > {{ .Values.archinfra.monitoring.redeliveryRateWarning }}
+        for: 10m
+        labels:
+          severity: warning
+          category: messaging
+        annotations:
+          summary: RabbitMQ message redelivery rate is high
+          description: Sustained redeliveries can indicate consumer failures or acknowledgement problems.
+      - alert: RabbitMQUnroutableMessages
+        expr: sum(rate(rabbitmq_global_messages_unroutable_dropped_total{service="{{ template "common.names.fullname" . }}"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          category: messaging
+        annotations:
+          summary: RabbitMQ is dropping unroutable messages
+          description: Non-mandatory publishes are being dropped as unroutable.
+      - alert: RabbitMQRaftCommitLagHigh
+        expr: max(rabbitmq_detailed_raft_last_written_index{service="{{ template "common.names.fullname" . }}"} - rabbitmq_detailed_raft_commit_index{service="{{ template "common.names.fullname" . }}"}) > {{ .Values.archinfra.monitoring.raftIndexLagWarning }}
+        for: 10m
+        labels:
+          severity: warning
+          category: quorum
+        annotations:
+          summary: RabbitMQ Raft commit index is lagging
+          description: A quorum queue or other Raft group has sustained uncommitted log entries.
+      - alert: RabbitMQPodRestarting
+        expr: increase(kube_pod_container_status_restarts_total{namespace="{{ include "common.names.namespace" . }}",container="rabbitmq"}[15m]) > 2
+        for: 5m
+        labels:
+          severity: warning
+          category: kubernetes
+        annotations:
+          summary: RabbitMQ Pod is repeatedly restarting
+          description: RabbitMQ restarted more than twice in the last 15 minutes.
+      - alert: RabbitMQPodOOMKilled
+        expr: max_over_time(kube_pod_container_status_last_terminated_reason{namespace="{{ include "common.names.namespace" . }}",container="rabbitmq",reason="OOMKilled"}[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          category: kubernetes
+        annotations:
+          summary: RabbitMQ Pod was OOMKilled
+          description: A RabbitMQ container was terminated by the kernel OOM killer.
+      - alert: RabbitMQPVCUsageWarning
+        expr: kubelet_volume_stats_used_bytes{namespace="{{ include "common.names.namespace" . }}",persistentvolumeclaim=~"data-{{ template "common.names.fullname" . }}-.*"} / clamp_min(kubelet_volume_stats_capacity_bytes{namespace="{{ include "common.names.namespace" . }}",persistentvolumeclaim=~"data-{{ template "common.names.fullname" . }}-.*"}, 1) > 0.80
+        for: 15m
+        labels:
+          severity: warning
+          category: storage
+        annotations:
+          summary: RabbitMQ PVC usage exceeds 80%
+          description: RabbitMQ persistent volume usage is above the warning threshold.
+      - alert: RabbitMQPVCUsageCritical
+        expr: kubelet_volume_stats_used_bytes{namespace="{{ include "common.names.namespace" . }}",persistentvolumeclaim=~"data-{{ template "common.names.fullname" . }}-.*"} / clamp_min(kubelet_volume_stats_capacity_bytes{namespace="{{ include "common.names.namespace" . }}",persistentvolumeclaim=~"data-{{ template "common.names.fullname" . }}-.*"}, 1) > 0.90
+        for: 10m
+        labels:
+          severity: critical
+          category: storage
+        annotations:
+          summary: RabbitMQ PVC usage exceeds 90%
+          description: RabbitMQ persistent volume is close to exhaustion.
   dashboards:
     enabled: true
     labels:
