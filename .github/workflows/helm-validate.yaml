@@ -1,0 +1,100 @@
+name: Helm Validate
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - ".github/workflows/helm-validate.yaml"
+      - "charts/**"
+      - "runtime/**"
+      - "images/**"
+      - "scripts/**"
+      - "install.sh"
+      - "build.sh"
+      - "UPSTREAM.yaml"
+      - "VERSION"
+  pull_request:
+    paths:
+      - ".github/workflows/helm-validate.yaml"
+      - "charts/**"
+      - "runtime/**"
+      - "images/**"
+      - "scripts/**"
+      - "install.sh"
+      - "build.sh"
+      - "UPSTREAM.yaml"
+      - "VERSION"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Validate production contract
+        run: |
+          python3 scripts/validate-upstream-contract.py
+          bash -n install.sh
+          bash -n build.sh
+          bash -n scripts/test-kind-cluster-e2e.sh
+          bash -n scripts/rabbitmq-upgrade-preflight.sh
+          python3 -m json.tool images/image.json >/dev/null
+
+      - name: Build chart dependencies
+        run: helm dependency build charts/rabbitmq
+
+      - name: Verify fork fails closed without archinfra profile
+        run: |
+          if helm template rabbitmq-cluster charts/rabbitmq >/tmp/base.out 2>&1; then
+            echo "base chart unexpectedly rendered without values-archinfra.yaml" >&2
+            exit 1
+          fi
+          cat /tmp/base.out
+          grep -Fq "4.3.6-r1" /tmp/base.out
+
+      - name: Lint production chart
+        run: helm lint charts/rabbitmq -f charts/rabbitmq/values-archinfra.yaml
+
+      - name: Render production chart
+        run: |
+          helm template rabbitmq-cluster charts/rabbitmq \
+            -n aict \
+            -f charts/rabbitmq/values-archinfra.yaml \
+            --set-string auth.existingPasswordSecret=rabbitmq-test-auth \
+            --set-string auth.existingErlangSecret=rabbitmq-test-auth \
+            > /tmp/rabbitmq.yaml
+
+          grep -Fq "sealos.hub:5000/kube4/rabbitmq:4.3.6-r1" /tmp/rabbitmq.yaml
+          grep -Fq "RABBITMQ_PASSWORD_FILE" /tmp/rabbitmq.yaml
+          grep -Fq "RABBITMQ_ERL_COOKIE_FILE" /tmp/rabbitmq.yaml
+          grep -Fq "monitoring.archinfra.io/stack" /tmp/rabbitmq.yaml
+          grep -Fq "rabbitmq-overview.json" /tmp/rabbitmq.yaml
+          grep -Fq "rabbitmq-queues-performance.json" /tmp/rabbitmq.yaml
+          ! grep -Fq "bitnamilegacy" /tmp/rabbitmq.yaml
+
+      - name: Validate RabbitMQ 4.3 rendered configuration
+        run: |
+          helm template rabbitmq-cluster charts/rabbitmq \
+            -n aict \
+            -f charts/rabbitmq/values-archinfra.yaml > /tmp/rabbitmq-generated-secret.yaml
+          python3 - <<'PY'
+          import base64, re
+          text = open('/tmp/rabbitmq-generated-secret.yaml').read()
+          match = re.search(r'rabbitmq\.conf:\s*\|-\s*\n\s*([A-Za-z0-9+/=]+)', text)
+          if not match:
+              raise SystemExit('unable to find rendered rabbitmq.conf')
+          config = base64.b64decode(match.group(1)).decode()
+          if 'cluster_partition_handling' in config:
+              raise SystemExit('RabbitMQ 4.3 config still contains obsolete cluster_partition_handling')
+          if 'queue_master_locator' in config:
+              raise SystemExit('RabbitMQ 4.3 config still contains obsolete queue_master_locator')
+          if 'disk_free_limit.absolute = 2GB' not in config:
+              raise SystemExit('production disk guardrail missing')
+          if 'vm_memory_high_watermark.absolute' not in config:
+              raise SystemExit('absolute memory watermark missing')
+          print(config)
+          PY

@@ -1,0 +1,12 @@
+{{- /*
+Archinfra fork safety gate.
+The upstream-derived values.yaml intentionally remains close to Bitnami 16.0.16 for
+traceability. Production installs must layer values-archinfra.yaml so an old 4.1
+image cannot accidentally be combined with the 4.3 chart/runtime contract.
+*/ -}}
+{{- if ne (toString .Values.image.tag) "4.3.6-r1" -}}
+{{- fail "archinfra rabbitmq 16.0.16-archinfra.1 requires values-archinfra.yaml (expected image.tag=4.3.6-r1)" -}}
+{{- end -}}
+{{- if not .Values.usePasswordFiles -}}
+{{- fail "archinfra rabbitmq production profile requires usePasswordFiles=true" -}}
+{{- end -}}

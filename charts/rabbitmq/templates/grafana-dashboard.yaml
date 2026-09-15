@@ -1,178 +1,57 @@
 {{- if and .Values.metrics.enabled .Values.metrics.dashboards.enabled }}
 {{- $rabbitmqService := include "common.names.fullname" . }}
+{{- $namespace := include "common.names.namespace" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "common.names.fullname" . }}-dashboard
-  namespace: {{ include "common.names.namespace" . | quote }}
+  name: {{ include "common.names.fullname" . }}-dashboards
+  namespace: {{ $namespace | quote }}
   labels: {{- include "common.labels.standard" ( dict "customLabels" .Values.commonLabels "context" $ ) | nindent 4 }}
-    {{- if .Values.metrics.dashboards.labels }}
-    {{- include "common.tplvalues.render" (dict "value" .Values.metrics.dashboards.labels "context" $) | nindent 4 }}
+    {{- with .Values.metrics.dashboards.labels }}
+    {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
     {{- end }}
-  {{- if .Values.metrics.dashboards.annotations }}
-  annotations: {{- include "common.tplvalues.render" (dict "value" .Values.metrics.dashboards.annotations "context" $) | nindent 4 }}
+  {{- with .Values.metrics.dashboards.annotations }}
+  annotations: {{- include "common.tplvalues.render" (dict "value" . "context" $) | nindent 4 }}
   {{- end }}
 data:
   rabbitmq-overview.json: |
     {
-      "annotations": {
-        "list": []
-      },
       "editable": true,
-      "panels": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 6,
-            "x": 0,
-            "y": 0
-          },
-          "targets": [
-            {
-              "expr": "sum(rabbitmq_running{service=\"{{ $rabbitmqService }}\"})",
-              "refId": "A"
-            }
-          ],
-          "title": "Running Nodes",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 6,
-            "x": 6,
-            "y": 0
-          },
-          "targets": [
-            {
-              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ $rabbitmqService }}\"})",
-              "refId": "A"
-            }
-          ],
-          "title": "Connections",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 6,
-            "x": 12,
-            "y": 0
-          },
-          "targets": [
-            {
-              "expr": "sum(rabbitmq_queue_messages_ready{service=\"{{ $rabbitmqService }}\"})",
-              "refId": "A"
-            }
-          ],
-          "title": "Messages Ready",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 5,
-            "w": 6,
-            "x": 18,
-            "y": 0
-          },
-          "targets": [
-            {
-              "expr": "sum(rabbitmq_partitions{service=\"{{ $rabbitmqService }}\"})",
-              "refId": "A"
-            }
-          ],
-          "title": "Partitions",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 5
-          },
-          "targets": [
-            {
-              "expr": "sum(rabbitmq_connectionsTotal{service=\"{{ $rabbitmqService }}\"})",
-              "legendFormat": "connections",
-              "refId": "A"
-            },
-            {
-              "expr": "sum(rabbitmq_queue_consumers{service=\"{{ $rabbitmqService }}\"})",
-              "legendFormat": "consumers",
-              "refId": "B"
-            }
-          ],
-          "title": "Connections And Consumers",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 5
-          },
-          "targets": [
-            {
-              "expr": "sum(rabbitmq_node_mem_used{service=\"{{ $rabbitmqService }}\"})",
-              "legendFormat": "memory used",
-              "refId": "A"
-            },
-            {
-              "expr": "sum(rabbitmq_node_mem_limit{service=\"{{ $rabbitmqService }}\"})",
-              "legendFormat": "memory limit",
-              "refId": "B"
-            }
-          ],
-          "title": "Node Memory",
-          "type": "timeseries",
-          "fieldConfig": {
-            "defaults": {
-              "unit": "bytes"
-            },
-            "overrides": []
-          }
-        }
-      ],
       "schemaVersion": 39,
-      "style": "dark",
-      "tags": [
-        "archinfra",
-        "rabbitmq"
-      ],
-      "templating": {
-        "list": []
-      },
-      "time": {
-        "from": "now-6h",
-        "to": "now"
-      },
-      "title": "RabbitMQ Cluster Overview",
-      "version": 1
+      "tags": ["archinfra", "rabbitmq"],
+      "time": {"from": "now-6h", "to": "now"},
+      "title": "RabbitMQ / Overview",
+      "panels": [
+        {"type":"stat","title":"Scrape Targets Up","gridPos":{"h":5,"w":4,"x":0,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(up{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Cluster Nodes","gridPos":{"h":5,"w":4,"x":4,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"count(rabbitmq_identity_info{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Connections","gridPos":{"h":5,"w":4,"x":8,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_connections{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Channels","gridPos":{"h":5,"w":4,"x":12,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_channels{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Consumers","gridPos":{"h":5,"w":4,"x":16,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_consumers{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Queues","gridPos":{"h":5,"w":4,"x":20,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_queues{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"timeseries","title":"Memory Used / Watermark","gridPos":{"h":8,"w":12,"x":0,"y":5},"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"unit":"bytes"},"overrides":[]},"targets":[{"refId":"A","legendFormat":"used {{`{{instance}}`}}","expr":"rabbitmq_process_resident_memory_bytes{service=\"{{ $rabbitmqService }}\"}"},{"refId":"B","legendFormat":"watermark {{`{{instance}}`}}","expr":"rabbitmq_resident_memory_limit_bytes{service=\"{{ $rabbitmqService }}\"}"}]},
+        {"type":"timeseries","title":"Disk Available / Alarm Limit","gridPos":{"h":8,"w":12,"x":12,"y":5},"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"unit":"bytes"},"overrides":[]},"targets":[{"refId":"A","legendFormat":"available {{`{{instance}}`}}","expr":"rabbitmq_disk_space_available_bytes{service=\"{{ $rabbitmqService }}\"}"},{"refId":"B","legendFormat":"limit {{`{{instance}}`}}","expr":"rabbitmq_disk_space_available_limit_bytes{service=\"{{ $rabbitmqService }}\"}"}]},
+        {"type":"timeseries","title":"File Descriptor Utilization","gridPos":{"h":8,"w":8,"x":0,"y":13},"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","max":1},"overrides":[]},"targets":[{"refId":"A","expr":"rabbitmq_process_open_fds{service=\"{{ $rabbitmqService }}\"} / clamp_min(rabbitmq_process_max_fds{service=\"{{ $rabbitmqService }}\"}, 1)"}]},
+        {"type":"timeseries","title":"Erlang Process Utilization","gridPos":{"h":8,"w":8,"x":8,"y":13},"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","max":1},"overrides":[]},"targets":[{"refId":"A","expr":"rabbitmq_erlang_processes_used{service=\"{{ $rabbitmqService }}\"} / clamp_min(rabbitmq_erlang_processes_limit{service=\"{{ $rabbitmqService }}\"}, 1)"}]},
+        {"type":"timeseries","title":"Pod Restarts","gridPos":{"h":8,"w":8,"x":16,"y":13},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"increase(kube_pod_container_status_restarts_total{namespace=\"{{ $namespace }}\",container=\"rabbitmq\"}[1h])"}]}
+      ]
+    }
+  rabbitmq-queues-performance.json: |
+    {
+      "editable": true,
+      "schemaVersion": 39,
+      "tags": ["archinfra", "rabbitmq", "queues", "raft"],
+      "time": {"from": "now-6h", "to": "now"},
+      "title": "RabbitMQ / Queues & Performance",
+      "panels": [
+        {"type":"stat","title":"Messages Ready","gridPos":{"h":5,"w":6,"x":0,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_detailed_queue_messages_ready{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Messages Unacked","gridPos":{"h":5,"w":6,"x":6,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_detailed_queue_messages_unacked{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Queue Consumers","gridPos":{"h":5,"w":6,"x":12,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rabbitmq_detailed_queue_consumers{service=\"{{ $rabbitmqService }}\"})"}]},
+        {"type":"stat","title":"Unroutable Drop Rate","gridPos":{"h":5,"w":6,"x":18,"y":0},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","expr":"sum(rate(rabbitmq_global_messages_unroutable_dropped_total{service=\"{{ $rabbitmqService }}\"}[5m]))"}]},
+        {"type":"timeseries","title":"Publish / Delivery / Ack Rate","gridPos":{"h":8,"w":12,"x":0,"y":5},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","legendFormat":"received","expr":"sum(rate(rabbitmq_global_messages_received_total{service=\"{{ $rabbitmqService }}\"}[5m]))"},{"refId":"B","legendFormat":"delivered","expr":"sum(rate(rabbitmq_global_messages_delivered_total{service=\"{{ $rabbitmqService }}\"}[5m]))"},{"refId":"C","legendFormat":"acked","expr":"sum(rate(rabbitmq_global_messages_acknowledged_total{service=\"{{ $rabbitmqService }}\"}[5m]))"},{"refId":"D","legendFormat":"redelivered","expr":"sum(rate(rabbitmq_global_messages_redelivered_total{service=\"{{ $rabbitmqService }}\"}[5m]))"}]},
+        {"type":"timeseries","title":"Queue Depth by Queue","gridPos":{"h":8,"w":12,"x":12,"y":5},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","legendFormat":"ready {{`{{vhost}}`}}/{{`{{queue}}`}}","expr":"rabbitmq_detailed_queue_messages_ready{service=\"{{ $rabbitmqService }}\"}"},{"refId":"B","legendFormat":"unacked {{`{{vhost}}`}}/{{`{{queue}}`}}","expr":"rabbitmq_detailed_queue_messages_unacked{service=\"{{ $rabbitmqService }}\"}"}]},
+        {"type":"timeseries","title":"Raft Commit Lag","gridPos":{"h":8,"w":12,"x":0,"y":13},"datasource":{"type":"prometheus","uid":"prometheus"},"targets":[{"refId":"A","legendFormat":"{{`{{name}}`}}","expr":"rabbitmq_detailed_raft_last_written_index{service=\"{{ $rabbitmqService }}\"} - rabbitmq_detailed_raft_commit_index{service=\"{{ $rabbitmqService }}\"}"}]},
+        {"type":"timeseries","title":"RabbitMQ Disk IO","gridPos":{"h":8,"w":12,"x":12,"y":13},"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"unit":"Bps"},"overrides":[]},"targets":[{"refId":"A","legendFormat":"read","expr":"sum(rate(rabbitmq_io_read_bytes_total{service=\"{{ $rabbitmqService }}\"}[5m]))"},{"refId":"B","legendFormat":"write","expr":"sum(rate(rabbitmq_io_write_bytes_total{service=\"{{ $rabbitmqService }}\"}[5m]))"}]},
+        {"type":"timeseries","title":"PVC Utilization","gridPos":{"h":8,"w":24,"x":0,"y":21},"datasource":{"type":"prometheus","uid":"prometheus"},"fieldConfig":{"defaults":{"unit":"percentunit","max":1},"overrides":[]},"targets":[{"refId":"A","legendFormat":"{{`{{persistentvolumeclaim}}`}}","expr":"kubelet_volume_stats_used_bytes{namespace=\"{{ $namespace }}\",persistentvolumeclaim=~\"data-{{ $rabbitmqService }}-.*\"} / clamp_min(kubelet_volume_stats_capacity_bytes{namespace=\"{{ $namespace }}\",persistentvolumeclaim=~\"data-{{ $rabbitmqService }}-.*\"}, 1)"}]}
+      ]
     }
 {{- end }}

@@ -1,0 +1,54 @@
+component: rabbitmq-cluster
+
+chart:
+  upstream: bitnami/rabbitmq
+  upstreamVersion: 16.0.16
+  forkVersion: 16.0.16-archinfra.1
+  ownership: archinfra-fork
+
+rabbitmq:
+  version: 4.3.6
+  source: rabbitmq/rabbitmq-server
+  runtimeStrategy: archinfra-owned-compatible-runtime
+  distribution: official-generic-unix
+  sha256: aa0ff5de9ff0136dc42eba21dc3a973cc3b286437cdba0f45556e890509c1614
+
+erlang:
+  version: 27.3.4.16
+  source: erlang/otp
+  build: source
+  sha256: b945362f125ecdba4281723595f08716808bafd9137ad153f12e1db917ce8517
+
+runtime:
+  os: debian-12
+  user: 1001
+  compatibilityContract: bitnami-rabbitmq-runtime-v1
+  bitnamiReference:
+    repository: bitnami/containers
+    ref: bcdcdbfba18dbd3483588fb1900f7a4aee9bb450
+    path: bitnami/rabbitmq/4.3/debian-12
+  note: >-
+    The Bitnami runtime shell contract is transitional. Archinfra owns the
+    production image and will replace compatibility helpers only after their
+    behavior is covered by tests.
+
+images:
+  rabbitmq: sealos.hub:5000/kube4/rabbitmq:4.3.6-r1
+  helper: sealos.hub:5000/kube4/os-shell:12-r1
+
+upgradePolicy:
+  supportedSeriesPath:
+    - 4.1.x
+    - 4.2.x
+    - 4.3.x
+  direct41To43: false
+  requireStableFeatureFlagsBeforeSeriesUpgrade: true
+
+maintenanceRules:
+  - Evaluate RabbitMQ security releases independently from the upstream chart appVersion.
+  - Do not ship bitnamilegacy RabbitMQ images in the production BOM.
+  - Build Erlang/OTP from a pinned upstream source release and verify its checksum.
+  - Use the official RabbitMQ generic UNIX distribution rather than a Bitnami RabbitMQ binary package.
+  - Keep RabbitMQ and Erlang compatibility explicit and CI validated.
+  - Keep helper images compatible with chart shell contracts instead of swapping them by name only.
+  - Validate new installs and supported in-place upgrade paths separately.
