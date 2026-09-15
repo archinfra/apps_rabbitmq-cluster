@@ -1,0 +1,120 @@
+# Archinfra production defaults layered on top of the upstream-derived values.yaml.
+# Keep this file small and intentional: upstream compatibility lives in values.yaml,
+# production ownership lives here, and installer/user overrides are applied last.
+
+global:
+  defaultStorageClass: nfs
+  security:
+    allowInsecureImages: true
+
+image:
+  registry: sealos.hub:5000
+  repository: kube4/rabbitmq
+  tag: 4.3.6-r1
+  pullPolicy: IfNotPresent
+
+replicaCount: 3
+podAntiAffinityPreset: soft
+terminationGracePeriodSeconds: 120
+
+usePasswordFiles: true
+auth:
+  username: admin
+  password: ""
+  erlangCookie: ""
+  securePassword: true
+  updatePassword: false
+  existingPasswordSecret: ""
+  existingSecretPasswordKey: rabbitmq-password
+  existingErlangSecret: ""
+  existingSecretErlangKey: rabbitmq-erlang-cookie
+
+# RabbitMQ 4.3 uses Khepri as its only metadata store. The old upstream
+# clustering.partitionHandling value is retained in values.yaml only for chart
+# compatibility; config-secret.yaml removes cluster_partition_handling for 4.3+.
+clustering:
+  enabled: true
+  addressType: hostname
+  forceBoot: false
+  rebalance: false
+
+persistence:
+  enabled: true
+  storageClass: nfs
+  size: 8Gi
+
+persistentVolumeClaimRetentionPolicy:
+  enabled: true
+  whenScaled: Retain
+  whenDeleted: Retain
+
+resourcesPreset: none
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: "1"
+    memory: 2Gi
+
+# Absolute thresholds are deliberate for Kubernetes: they stay tied to the pod
+# cgroup limit instead of host memory discovery.
+memoryHighWatermark:
+  enabled: true
+  type: absolute
+  value: 1280Mi
+
+# Keep a meaningful disk safety margin above RabbitMQ's development-oriented
+# defaults. Install-time resource profiles may override this value.
+extraConfiguration: |-
+  disk_free_limit.absolute = 2GB
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+  allowExternalEgress: true
+  addExternalClientAccess: true
+
+service:
+  type: ClusterIP
+
+metrics:
+  enabled: true
+  serviceMonitor:
+    labels:
+      monitoring.archinfra.io/stack: default
+    default:
+      enabled: true
+      interval: 30s
+      scrapeTimeout: ""
+    perObject:
+      enabled: false
+    detailed:
+      enabled: false
+  prometheusRule:
+    enabled: true
+    additionalLabels:
+      monitoring.archinfra.io/stack: default
+  dashboards:
+    enabled: true
+    labels:
+      grafana_dashboard: "1"
+      monitoring.archinfra.io/stack: default
+    annotations:
+      grafana_folder: Middleware/RabbitMQ
+
+volumePermissions:
+  enabled: false
+  image:
+    registry: sealos.hub:5000
+    repository: kube4/os-shell
+    tag: 1.37.0-glibc
+    pullPolicy: IfNotPresent
+  resourcesPreset: none
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
