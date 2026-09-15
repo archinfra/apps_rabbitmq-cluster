@@ -9,8 +9,8 @@
   {
     "arch": "amd64",
     "platform": "linux/amd64",
-    "pull": "docker.io/library/busybox:1.37.0-glibc",
-    "tag": "sealos.hub:5000/kube4/os-shell:1.37.0-glibc",
+    "build": "runtime/os-shell",
+    "tag": "sealos.hub:5000/kube4/os-shell:12-r1",
     "tar": "os-shell-amd64.tar"
   },
   {
@@ -23,8 +23,8 @@
   {
     "arch": "arm64",
     "platform": "linux/arm64",
-    "pull": "docker.io/library/busybox:1.37.0-glibc",
-    "tag": "sealos.hub:5000/kube4/os-shell:1.37.0-glibc",
+    "build": "runtime/os-shell",
+    "tag": "sealos.hub:5000/kube4/os-shell:12-r1",
     "tar": "os-shell-arm64.tar"
   }
 ]
